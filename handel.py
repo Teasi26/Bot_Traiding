@@ -17,6 +17,8 @@ from zoneinfo import ZoneInfo
 
 LOGDATEI = "/mnt/project-files/market-bot/handelslog.md"  # neuester Lauf zuoberst, falls der Ordner existiert
 LOG_TITEL = "# Handelslog Demo-Bot"
+STATUSDATEI = "/mnt/project-files/market-bot/status.json"  # Daten für die Handy-App, bei jedem Lauf neu
+STARTKAPITAL = 100000
 WOCHENTAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 BASIS = "https://paper-api.alpaca.markets/v2"  # nur das Demo-Konto, nie echtes Geld
@@ -115,6 +117,8 @@ def pruefen(symbol):
     chance, faelle = gewinnchance(werte, tage)
     return symbol, tage[-1], chance, faelle
 
+LAUF = {}  # Zusammenfassung des aktuellen Laufs für status.json
+
 def main():
     """Handelt und gibt den Logeintrag als Markdown zurück."""
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Zurich"))
@@ -169,6 +173,7 @@ def main():
         if not PROBELAUF:
             alpaca("POST", "/orders", {"symbol": d[0], "notional": str(BETRAG_USD), "side": "buy",
                                        "type": "market", "time_in_force": "day"})
+    LAUF.update(gekauft=gekauft, verkauft=verkauft, geprueft=len(daten), signale=len(kandidaten))
     konto_text += f"  \n{len(daten)} Aktien geprüft · {len(kandidaten)} mit Kaufsignal · Depot max. {MAX_POSITIONEN}"
     return eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen)
 
@@ -190,7 +195,40 @@ def ins_log(text):
     with open(LOGDATEI, "w") as f:
         f.write(LOG_TITEL + "\n\n" + text + "\n---\n\n" + alt)
 
+def status_schreiben():
+    """Kontostand, Positionen und letzte Aufträge als JSON für die Handy-App. Nur lesende Abfragen."""
+    if PROBELAUF or not os.path.isdir(os.path.dirname(STATUSDATEI)):
+        return
+    jetzt = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    konto = alpaca("GET", "/account")
+    kapital = float(konto["equity"])
+    positionen = [{"symbol": p["symbol"], "wert": float(p["market_value"]), "einstand": float(p["cost_basis"]),
+                   "kurs": float(p["current_price"]), "gewinn": float(p["unrealized_pl"]),
+                   "prozent": float(p["unrealized_plpc"]), "heute": float(p["change_today"] or 0)}
+                  for p in alpaca("GET", "/positions")]
+    auftraege = [{"symbol": o["symbol"], "seite": o["side"], "status": o["status"],
+                  "zeit": o["filled_at"] or o["submitted_at"],
+                  "betrag": float(o["notional"]) if o["notional"] else None,
+                  "preis": float(o["filled_avg_price"]) if o["filled_avg_price"] else None,
+                  "stueck": float(o["filled_qty"] or 0)}
+                 for o in alpaca("GET", "/orders?status=all&limit=30&direction=desc") or []]
+    uhr = alpaca("GET", "/clock")
+    try:
+        verlauf = json.load(open(STATUSDATEI)).get("verlauf", [])
+    except (OSError, ValueError):
+        verlauf = []
+    verlauf = (verlauf + [{"zeit": jetzt, "kapital": round(kapital, 2)}])[-500:]
+    status = {"stand": jetzt, "kapital": kapital, "cash": float(konto["cash"]),
+              "kapital_gestern": float(konto["last_equity"]), "startkapital": STARTKAPITAL,
+              "max_positionen": MAX_POSITIONEN, "gewinn_ziel": GEWINN_ZIEL,
+              "boerse_offen": uhr["is_open"], "naechste_oeffnung": uhr["next_open"],
+              "lauf": LAUF, "positionen": positionen, "auftraege": auftraege, "verlauf": verlauf}
+    with open(STATUSDATEI + ".neu", "w") as f:
+        json.dump(status, f, ensure_ascii=False)
+    os.replace(STATUSDATEI + ".neu", STATUSDATEI)
+
 if __name__ == "__main__":
     text = main()
     print(text)
     ins_log(text)
+    status_schreiben()
