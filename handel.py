@@ -106,12 +106,19 @@ def main():
         konto = alpaca("GET", "/account")
         konto_text = f"Kapital **{float(konto['equity']):,.0f} $** · Cash {float(konto['cash']):,.0f} $".replace(",", "'")
     gekauft, verkauft, bestand, zeilen = [], [], [], []
+    # Noch nicht ausgeführte Kaufaufträge (z.B. ausserhalb der Börsenzeit) zählen wie eine Position,
+    # damit nicht doppelt gekauft wird.
+    offen = set() if PROBELAUF else {o["symbol"] for o in alpaca("GET", "/orders?status=open") or []}
     for symbol in AKTIEN:
         werte = kurse(symbol)
         tage = tagesdaten(werte)
         heute = tage[-1]
         chance, faelle = gewinnchance(werte, tage)
         pos = None if PROBELAUF else alpaca("GET", "/positions/" + symbol)
+        if pos is None and symbol in offen:
+            zeilen.append(f"⏳ {symbol}: Kaufauftrag wartet auf Börsenöffnung")
+            bestand.append(symbol)
+            continue
         if pos is None and kaufsignal(heute) and chance >= MIN_CHANCE and faelle >= MIN_FAELLE:
             aktion = "KAUFEN"
         elif pos is not None and verkaufsignal(heute):
@@ -144,8 +151,8 @@ def eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen=None):
     return "\n".join(teile) + "\n"
 
 def ins_log(text):
-    """Neuester Eintrag zuoberst."""
-    if not os.path.isdir(os.path.dirname(LOGDATEI)):
+    """Neuester Eintrag zuoberst. Probeläufe werden nicht protokolliert."""
+    if PROBELAUF or not os.path.isdir(os.path.dirname(LOGDATEI)):
         return
     alt = open(LOGDATEI).read() if os.path.exists(LOGDATEI) else ""
     alt = alt.split("\n", 2)[2] if alt.startswith(LOG_TITEL) else alt
