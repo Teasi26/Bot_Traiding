@@ -10,9 +10,12 @@ Verkauft wird, wenn der Trend "Abwärts" kippt oder der RSI über 75 steigt.
 
 Schlüssel als Umgebungsvariablen ALPACA_KEY und ALPACA_SECRET setzen.
 Ohne Schlüssel läuft das Skript als Probelauf und zeigt nur, was es tun würde."""
-import datetime, io, json, os, sys, urllib.error, urllib.parse, urllib.request
+import datetime, json, os, urllib.error, urllib.parse, urllib.request
+from zoneinfo import ZoneInfo
 
-LOGDATEI = "/mnt/project-files/market-bot/handelslog.txt"  # wird angehängt, falls der Ordner existiert
+LOGDATEI = "/mnt/project-files/market-bot/handelslog.md"  # neuester Lauf zuoberst, falls der Ordner existiert
+LOG_TITEL = "# Handelslog Demo-Bot"
+WOCHENTAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 BASIS = "https://paper-api.alpaca.markets/v2"  # nur das Demo-Konto, nie echtes Geld
 BETRAG_USD = 1000     # Einsatz pro Kauf
@@ -87,12 +90,22 @@ def alpaca(methode, pfad, daten=None):
             return None
         raise SystemExit(f"Alpaca-Fehler {e.code}: {e.read().decode()}")
 
+def zeile(symbol, heute, chance, aktion, hat_position):
+    """Eine kurze, handyfreundliche Zeile pro Aktie."""
+    zeichen = {"KAUFEN": "🟢", "VERKAUFEN": "🔴"}.get(aktion, "💼" if hat_position else "⚪")
+    text = {"KAUFEN": "gekauft", "VERKAUFEN": "verkauft"}.get(aktion, "im Depot" if hat_position else "warten")
+    return f"{zeichen} {symbol}: {heute[0]:,.2f} $ · RSI {heute[3]:.0f} · Chance {chance:.0%} → {text}"
+
 def main():
+    """Handelt und gibt den Logeintrag als Markdown zurück."""
+    jetzt = datetime.datetime.now(ZoneInfo("Europe/Zurich"))
+    kopf = f"## {WOCHENTAGE[jetzt.weekday()]} {jetzt:%d.%m.%Y, %H:%M} Uhr"
     if PROBELAUF:
-        print("Probelauf (keine Schlüssel gesetzt): es wird nichts gehandelt.\n")
+        konto_text = "Probelauf (keine Schlüssel), es wurde nichts gehandelt."
     else:
         konto = alpaca("GET", "/account")
-        print(f"Demo-Konto: Kapital {float(konto['equity']):,.2f} USD, Cash {float(konto['cash']):,.2f} USD\n")
+        konto_text = f"Kapital **{float(konto['equity']):,.0f} $** · Cash {float(konto['cash']):,.0f} $".replace(",", "'")
+    gekauft, verkauft, bestand, zeilen = [], [], [], []
     for symbol in AKTIEN:
         werte = kurse(symbol)
         tage = tagesdaten(werte)
@@ -105,27 +118,41 @@ def main():
             aktion = "VERKAUFEN"
         else:
             aktion = "HALTEN"
-        signal = "Kaufsignal" if kaufsignal(heute) else "kein Kaufsignal"
-        print(f"{symbol:6} Kurs {heute[0]:>9,.2f}  RSI {heute[3]:>3.0f}  {signal:15} "
-              f"Chance {chance:4.0%} ({faelle} Fälle){'  Position offen' if pos else ''} -> {aktion}")
-        if PROBELAUF or aktion == "HALTEN":
+        zeilen.append(zeile(symbol, heute, chance, aktion, pos is not None))
+        if aktion == "HALTEN":
+            if pos is not None:
+                bestand.append(symbol)
             continue
         if aktion == "KAUFEN":
-            alpaca("POST", "/orders", {"symbol": symbol, "notional": str(BETRAG_USD), "side": "buy",
-                                       "type": "market", "time_in_force": "day"})
-            print(f"       Kaufauftrag über {BETRAG_USD} USD gesendet.")
+            gekauft.append(symbol)
+            if not PROBELAUF:
+                alpaca("POST", "/orders", {"symbol": symbol, "notional": str(BETRAG_USD), "side": "buy",
+                                           "type": "market", "time_in_force": "day"})
         else:
-            alpaca("DELETE", "/positions/" + symbol)
-            print("       Position verkauft.")
+            verkauft.append(symbol)
+            if not PROBELAUF:
+                alpaca("DELETE", "/positions/" + symbol)
+    return eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen)
+
+def eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen=None):
+    teile = [kopf, "", konto_text, "",
+             f"🟢 Gekauft: {', '.join(gekauft) or '–'}  ",
+             f"🔴 Verkauft: {', '.join(verkauft) or '–'}  ",
+             f"💼 Im Depot: {', '.join(bestand) or '–'}"]
+    if zeilen:
+        teile += ["", "<details><summary>Alle 20 Aktien</summary>", ""] + [z + "  " for z in zeilen] + ["", "</details>"]
+    return "\n".join(teile) + "\n"
+
+def ins_log(text):
+    """Neuester Eintrag zuoberst."""
+    if not os.path.isdir(os.path.dirname(LOGDATEI)):
+        return
+    alt = open(LOGDATEI).read() if os.path.exists(LOGDATEI) else ""
+    alt = alt.split("\n", 2)[2] if alt.startswith(LOG_TITEL) else alt
+    with open(LOGDATEI, "w") as f:
+        f.write(LOG_TITEL + "\n\n" + text + "\n---\n\n" + alt)
 
 if __name__ == "__main__":
-    puffer, echt = io.StringIO(), sys.stdout
-    sys.stdout = puffer
-    try:
-        main()
-    finally:
-        sys.stdout = echt
-        print(puffer.getvalue(), end="")
-        if os.path.isdir(os.path.dirname(LOGDATEI)):
-            with open(LOGDATEI, "a") as f:
-                f.write(f"\n===== {datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M:%S} UTC =====\n" + puffer.getvalue())
+    text = main()
+    print(text)
+    ins_log(text)
