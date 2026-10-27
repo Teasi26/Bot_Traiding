@@ -45,6 +45,15 @@ RUECKGANG_STARK = 0.03  # ab diesem Rückgang immer verkaufen
 SPERRE_TAGE = 5       # nach einem Verkauf diese Aktie so lange nicht wieder kaufen
 MAX_POSITIONEN = 50   # höchstens so viele Aktien gleichzeitig (50 x 1000 USD = halbes Spielgeld)
 
+# Livio kann diese Werte in der Handy-App ändern; sie landen vor jedem Aufruf in dieser Datei.
+# Werte ausserhalb der Grenzen werden auf die Grenze gesetzt, fehlende bleiben beim Standard oben.
+EINSTELLUNGSDATEI = "/mnt/project-files/market-bot/einstellungen.json"
+GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "GEWINN_ZIEL": ("gewinn_ziel", 0.01, 0.15),
+           "SICHERN_AB": ("sichern_ab", 0.005, 0.05), "RUECKGANG": ("rueckgang", 0.005, 0.05),
+           "RUECKGANG_STARK": ("rueckgang_stark", 0.01, 0.10),
+           "MAX_POSITIONEN": ("max_positionen", 1, 90), "BETRAG_USD": ("betrag", 100, 5000)}
+KAEUFE_PAUSIERT = False  # in der App einschaltbar: nur noch verkaufen, nichts Neues kaufen
+
 # Alle Aktien aus dem S&P 500 (Liste in sp500.txt neben diesem Skript)
 _LISTE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sp500.txt")
 AKTIEN = [z.strip() for z in open(_LISTE) if z.strip() and not z.startswith("#")]
@@ -150,6 +159,26 @@ def preise_aktualisieren(hist):
 
 LAUF = {}  # Zusammenfassung des aktuellen Laufs für status.json
 
+def einstellungen_laden():
+    """Übernimmt die Werte aus der Handy-App, falls vorhanden."""
+    try:
+        werte = json.load(open(EINSTELLUNGSDATEI))
+    except (OSError, ValueError):
+        return
+    for name, (feld, tief, hoch) in GRENZEN.items():
+        try:
+            wert = min(max(float(werte[feld]), tief), hoch)
+            globals()[name] = round(wert) if isinstance(tief, int) else wert
+        except (KeyError, TypeError, ValueError):
+            pass
+    global RUECKGANG_STARK, KAEUFE_PAUSIERT
+    RUECKGANG_STARK = max(RUECKGANG_STARK, RUECKGANG)
+    KAEUFE_PAUSIERT = werte.get("kaeufe_pausiert") is True
+
+def einstellungen():
+    werte = {feld: globals()[name] for name, (feld, _, _) in GRENZEN.items()}
+    return {**werte, "kaeufe_pausiert": KAEUFE_PAUSIERT}
+
 def quick_verkauf(hoechst, gewinn, d):
     """Gewinn sichern bei starkem Rückgang; leichte Rückgänge mit guter Aussicht aussitzen."""
     if hoechst < SICHERN_AB:
@@ -218,7 +247,7 @@ def main(hist):
     kandidaten = sorted((d for s_, d in daten.items() if s_ not in set(positionen) | offen | gesperrt
                          and kaufsignal(d[1]) and d[2] >= MIN_CHANCE and d[3] >= MIN_FAELLE),
                         key=lambda d: -d[2])
-    platz = MAX_POSITIONEN - len(bestand)
+    platz = 0 if KAEUFE_PAUSIERT else MAX_POSITIONEN - len(bestand)
     gekauft = []
     for d in kandidaten:
         if len(gekauft) >= platz or cash < BETRAG_USD:
@@ -276,7 +305,7 @@ def status_schreiben():
     verlauf = (verlauf + [{"zeit": jetzt, "kapital": round(kapital, 2)}])[-500:]
     status = {"stand": jetzt, "kapital": kapital, "cash": float(konto["cash"]),
               "kapital_gestern": float(konto["last_equity"]), "startkapital": STARTKAPITAL,
-              "max_positionen": MAX_POSITIONEN, "gewinn_ziel": GEWINN_ZIEL,
+              "max_positionen": MAX_POSITIONEN, "gewinn_ziel": GEWINN_ZIEL, "einstellungen": einstellungen(),
               "boerse_offen": uhr["is_open"], "naechste_oeffnung": uhr["next_open"],
               "lauf": LAUF, "positionen": positionen, "auftraege": auftraege, "verlauf": verlauf}
     with open(STATUSDATEI + ".neu", "w") as f:
@@ -293,6 +322,7 @@ if __name__ == "__main__":
     runden, letzter_fehler = 0, None
     while True:
         try:
+            einstellungen_laden()
             if PROBELAUF or alpaca("GET", "/clock")["is_open"]:
                 if not PROBELAUF:
                     preise_aktualisieren(hist)
