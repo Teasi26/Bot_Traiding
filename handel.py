@@ -53,6 +53,7 @@ GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "GEWINN_ZIEL": ("gewinn_zie
            "RUECKGANG_STARK": ("rueckgang_stark", 0.01, 0.10),
            "MAX_POSITIONEN": ("max_positionen", 1, 90), "BETRAG_USD": ("betrag", 100, 5000)}
 KAEUFE_PAUSIERT = False  # in der App einschaltbar: nur noch verkaufen, nichts Neues kaufen
+ZIELE = {}  # eigenes Gewinnziel pro Aktie aus der App (Depot), sonst gilt GEWINN_ZIEL
 
 # Alle Aktien aus dem S&P 500 (Liste in sp500.txt neben diesem Skript)
 _LISTE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sp500.txt")
@@ -171,13 +172,20 @@ def einstellungen_laden():
             globals()[name] = round(wert) if isinstance(tief, int) else wert
         except (KeyError, TypeError, ValueError):
             pass
-    global RUECKGANG_STARK, KAEUFE_PAUSIERT
+    global RUECKGANG_STARK, KAEUFE_PAUSIERT, ZIELE
     RUECKGANG_STARK = max(RUECKGANG_STARK, RUECKGANG)
     KAEUFE_PAUSIERT = werte.get("kaeufe_pausiert") is True
+    ZIELE = {}
+    ziele = werte.get("ziele")
+    for symbol, ziel in (ziele.items() if isinstance(ziele, dict) else []):
+        try:
+            ZIELE[str(symbol)] = min(max(float(ziel), 0.005), 0.30)
+        except (TypeError, ValueError):
+            pass  # leer oder ungültig: Standardziel
 
 def einstellungen():
     werte = {feld: globals()[name] for name, (feld, _, _) in GRENZEN.items()}
-    return {**werte, "kaeufe_pausiert": KAEUFE_PAUSIERT}
+    return {**werte, "kaeufe_pausiert": KAEUFE_PAUSIERT, "ziele": ZIELE}
 
 def quick_verkauf(hoechst, gewinn, d):
     """Gewinn sichern bei starkem Rückgang; leichte Rückgänge mit guter Aussicht aussitzen."""
@@ -223,9 +231,9 @@ def main(hist):
         if symbol in offen:
             bestand.append(symbol)
             zeilen.append(f"⏳ {symbol}: Auftrag wartet auf Ausführung")
-        elif gewinn is not None and (gewinn >= GEWINN_ZIEL or (d and verkaufsignal(d[1]))
+        elif gewinn is not None and (gewinn >= ZIELE.get(symbol, GEWINN_ZIEL) or (d and verkaufsignal(d[1]))
                                      or quick_verkauf(hoch[symbol], gewinn, d)):
-            if gewinn >= GEWINN_ZIEL:
+            if gewinn >= ZIELE.get(symbol, GEWINN_ZIEL):
                 grund = f"+{gewinn:.1%} Gewinnziel erreicht"
             elif quick_verkauf(hoch[symbol], gewinn, d):
                 grund = f"Quick-Trade, Gewinn gesichert (Höchststand {hoch[symbol]:+.1%})"
