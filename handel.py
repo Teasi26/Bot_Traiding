@@ -7,8 +7,10 @@ Gewinnchance: Wie oft lag die Aktie in den letzten 5 Jahren nach genau so einem 
 Das ist ein Rückblick, keine Garantie für die Zukunft.
 
 Verkauft wird, sobald eine Position 5 % im Plus ist, der Trend "Abwärts" kippt oder der RSI über 75 steigt.
-Quick-Trade: War eine Position schon mindestens 1 % im Plus und fällt sie danach um 1 Prozentpunkt
-von ihrem Höchststand zurück, wird sie verkauft, um den Gewinn zu sichern.
+Quick-Trade: War eine Position schon mindestens 1 % im Plus und fällt sie danach von ihrem Höchststand zurück:
+  - weniger als 1.5 Prozentpunkte: leichter Rückgang, behalten
+  - ab 1.5 Prozentpunkten: verkaufen, ausser die Aktie hat weiterhin ein Kaufsignal mit mindestens 60 % Chance
+  - ab 3 Prozentpunkten: immer verkaufen (starker Fall, Gewinn sichern)
 Danach wird dieselbe Aktie 5 Tage lang nicht wieder gekauft.
 Geprüft werden alle S&P-500-Aktien; höchstens 50 Positionen gleichzeitig, die mit der höchsten Chance zuerst.
 
@@ -38,7 +40,8 @@ MIN_FAELLE = 30       # so oft muss das Signal früher vorgekommen sein
 
 GEWINN_ZIEL = 0.05    # Position verkaufen, sobald sie 5 % im Plus ist
 SICHERN_AB = 0.01     # Quick-Trade greift, sobald eine Position einmal 1 % im Plus war
-RUECKGANG = 0.01      # ... und verkauft, wenn sie 1 Prozentpunkt unter ihren Höchststand fällt
+RUECKGANG = 0.015     # ab diesem Rückgang vom Höchststand verkaufen, wenn die Aussicht nicht mehr gut ist
+RUECKGANG_STARK = 0.03  # ab diesem Rückgang immer verkaufen
 SPERRE_TAGE = 5       # nach einem Verkauf diese Aktie so lange nicht wieder kaufen
 MAX_POSITIONEN = 50   # höchstens so viele Aktien gleichzeitig (50 x 1000 USD = halbes Spielgeld)
 
@@ -147,6 +150,16 @@ def preise_aktualisieren(hist):
 
 LAUF = {}  # Zusammenfassung des aktuellen Laufs für status.json
 
+def quick_verkauf(hoechst, gewinn, d):
+    """Gewinn sichern bei starkem Rückgang; leichte Rückgänge mit guter Aussicht aussitzen."""
+    if hoechst < SICHERN_AB:
+        return False
+    rueckgang = hoechst - gewinn
+    if rueckgang >= RUECKGANG_STARK:
+        return True
+    aussicht_gut = d is not None and kaufsignal(d[1]) and d[2] >= MIN_CHANCE
+    return rueckgang >= RUECKGANG and not aussicht_gut
+
 def main(hist):
     """Eine Prüfrunde: handelt und gibt den Logeintrag als Markdown zurück."""
     jetzt = datetime.datetime.now(ZoneInfo("Europe/Zurich"))
@@ -182,10 +195,10 @@ def main(hist):
             bestand.append(symbol)
             zeilen.append(f"⏳ {symbol}: Auftrag wartet auf Ausführung")
         elif gewinn is not None and (gewinn >= GEWINN_ZIEL or (d and verkaufsignal(d[1]))
-                                     or (hoch[symbol] >= SICHERN_AB and gewinn <= hoch[symbol] - RUECKGANG)):
+                                     or quick_verkauf(hoch[symbol], gewinn, d)):
             if gewinn >= GEWINN_ZIEL:
                 grund = f"+{gewinn:.1%} Gewinnziel erreicht"
-            elif hoch[symbol] >= SICHERN_AB and gewinn <= hoch[symbol] - RUECKGANG:
+            elif quick_verkauf(hoch[symbol], gewinn, d):
                 grund = f"Quick-Trade, Gewinn gesichert (Höchststand {hoch[symbol]:+.1%})"
             else:
                 grund = "Verkaufssignal"
