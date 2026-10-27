@@ -7,6 +7,8 @@ Gewinnchance: Wie oft lag die Aktie in den letzten 5 Jahren nach genau so einem 
 Das ist ein Rückblick, keine Garantie für die Zukunft.
 
 Verkauft wird, sobald eine Position 5 % im Plus ist, der Trend "Abwärts" kippt oder der RSI über 75 steigt.
+Quick-Trade: War eine Position schon mindestens 1 % im Plus und fällt sie danach um 1 Prozentpunkt
+von ihrem Höchststand zurück, wird sie verkauft, um den Gewinn zu sichern.
 Danach wird dieselbe Aktie 5 Tage lang nicht wieder gekauft.
 Geprüft werden alle S&P-500-Aktien; höchstens 50 Positionen gleichzeitig, die mit der höchsten Chance zuerst.
 
@@ -22,6 +24,7 @@ LOGDATEI = "/mnt/project-files/market-bot/handelslog.md"  # neuester Lauf zuober
 LOG_TITEL = "# Handelslog Demo-Bot"
 STATUSDATEI = "/mnt/project-files/market-bot/status.json"  # Daten für die Handy-App, bei jedem Lauf neu
 STARTKAPITAL = 100000
+HOCHDATEI = "/mnt/project-files/market-bot/hoechststand.json"  # höchster Gewinn pro Position (für Quick-Trade)
 WOCHENTAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 BASIS = "https://paper-api.alpaca.markets/v2"  # nur das Demo-Konto, nie echtes Geld
@@ -34,6 +37,8 @@ HALTEDAUER = 20       # Handelstage (etwa ein Monat) für die Trefferquote
 MIN_FAELLE = 30       # so oft muss das Signal früher vorgekommen sein
 
 GEWINN_ZIEL = 0.05    # Position verkaufen, sobald sie 5 % im Plus ist
+SICHERN_AB = 0.01     # Quick-Trade greift, sobald eine Position einmal 1 % im Plus war
+RUECKGANG = 0.01      # ... und verkauft, wenn sie 1 Prozentpunkt unter ihren Höchststand fällt
 SPERRE_TAGE = 5       # nach einem Verkauf diese Aktie so lange nicht wieder kaufen
 MAX_POSITIONEN = 50   # höchstens so viele Aktien gleichzeitig (50 x 1000 USD = halbes Spielgeld)
 
@@ -163,6 +168,12 @@ def main(hist):
 
     daten = {s_: (s_, heute(werte), chance, faelle) for s_, werte, chance, faelle in hist.values()}
 
+    try:
+        hoch = json.load(open(HOCHDATEI))
+    except (OSError, ValueError):
+        hoch = {}
+    hoch = {s_: max(hoch.get(s_, g), g) for s_, g in positionen.items()}
+
     verkauft, bestand, zeilen = [], [], []
     for symbol in sorted(set(positionen) | offen):
         d = daten.get(symbol)
@@ -170,8 +181,14 @@ def main(hist):
         if symbol in offen:
             bestand.append(symbol)
             zeilen.append(f"⏳ {symbol}: Auftrag wartet auf Ausführung")
-        elif gewinn is not None and (gewinn >= GEWINN_ZIEL or (d and verkaufsignal(d[1]))):
-            grund = f"+{gewinn:.1%} Gewinnziel erreicht" if gewinn >= GEWINN_ZIEL else "Verkaufssignal"
+        elif gewinn is not None and (gewinn >= GEWINN_ZIEL or (d and verkaufsignal(d[1]))
+                                     or (hoch[symbol] >= SICHERN_AB and gewinn <= hoch[symbol] - RUECKGANG)):
+            if gewinn >= GEWINN_ZIEL:
+                grund = f"+{gewinn:.1%} Gewinnziel erreicht"
+            elif hoch[symbol] >= SICHERN_AB and gewinn <= hoch[symbol] - RUECKGANG:
+                grund = f"Quick-Trade, Gewinn gesichert (Höchststand {hoch[symbol]:+.1%})"
+            else:
+                grund = "Verkaufssignal"
             verkauft.append(f"{symbol} ({gewinn:+.1%})")
             zeilen.append(f"🔴 {symbol}: verkauft, {grund}")
             if not PROBELAUF:
@@ -179,6 +196,10 @@ def main(hist):
         elif symbol in positionen:
             bestand.append(symbol)
             zeilen.append((zeile(*d, "HALTEN", True) if d else f"💼 {symbol}") + f" · {gewinn:+.1%}")
+
+    if not PROBELAUF and os.path.isdir(os.path.dirname(HOCHDATEI)):
+        with open(HOCHDATEI, "w") as f:
+            json.dump({s_: g for s_, g in hoch.items() if f"{s_} (" not in " ".join(verkauft)}, f)
 
     # Kandidaten mit der höchsten Chance zuerst, bis das Limit oder das Cash erreicht ist
     kandidaten = sorted((d for s_, d in daten.items() if s_ not in set(positionen) | offen | gesperrt
