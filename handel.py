@@ -22,17 +22,19 @@ Ohne Schlüssel läuft das Skript als Probelauf und zeigt nur, was es tun würde
 import concurrent.futures, datetime, json, os, time, urllib.error, urllib.parse, urllib.request
 from zoneinfo import ZoneInfo
 
-LOGDATEI = "/mnt/project-files/market-bot/handelslog.md"  # neuester Lauf zuoberst, falls der Ordner existiert
+# Datenordner: auf GitHub setzt der Ablauf BOT_ORDNER, sonst der Projektordner
+ORDNER = os.environ.get("BOT_ORDNER", "/mnt/project-files/market-bot")
+LOGDATEI = os.path.join(ORDNER, "handelslog.md")  # neuester Lauf zuoberst, falls der Ordner existiert
 LOG_TITEL = "# Handelslog Demo-Bot"
-STATUSDATEI = "/mnt/project-files/market-bot/status.json"  # Daten für die Handy-App, bei jedem Lauf neu
+STATUSDATEI = os.path.join(ORDNER, "status.json")  # Daten für die Handy-App, bei jedem Lauf neu
 STARTKAPITAL = 100000
-HOCHDATEI = "/mnt/project-files/market-bot/hoechststand.json"  # höchster Gewinn pro Position (für Quick-Trade)
+HOCHDATEI = os.path.join(ORDNER, "hoechststand.json")  # höchster Gewinn pro Position (für Quick-Trade)
 WOCHENTAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 BASIS = "https://paper-api.alpaca.markets/v2"  # nur das Demo-Konto, nie echtes Geld
 DATEN = "https://data.alpaca.markets/v2"        # aktuelle Kurse
 INTERVALL_S = 120     # alle 2 Minuten neu prüfen
-LAUFZEIT_MIN = 57     # so lange läuft ein Aufruf (die geplante Aufgabe startet stündlich)
+LAUFZEIT_MIN = float(os.environ.get("BOT_LAUFZEIT_MIN", 57))  # so lange läuft ein Aufruf (die geplante Aufgabe startet stündlich)
 BETRAG_USD = 1000     # Einsatz pro Kauf
 MIN_CHANCE = 0.60     # mindestens 60 % historische Trefferquote
 HALTEDAUER = 20       # Handelstage (etwa ein Monat) für die Trefferquote
@@ -47,7 +49,7 @@ MAX_POSITIONEN = 50   # höchstens so viele Aktien gleichzeitig (50 x 1000 USD =
 
 # Livio kann diese Werte in der Handy-App ändern; sie landen vor jedem Aufruf in dieser Datei.
 # Werte ausserhalb der Grenzen werden auf die Grenze gesetzt, fehlende bleiben beim Standard oben.
-EINSTELLUNGSDATEI = "/mnt/project-files/market-bot/einstellungen.json"
+EINSTELLUNGSDATEI = os.path.join(ORDNER, "einstellungen.json")
 GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "GEWINN_ZIEL": ("gewinn_ziel", 0.01, 0.15),
            "SICHERN_AB": ("sichern_ab", 0.005, 0.05), "RUECKGANG": ("rueckgang", 0.005, 0.05),
            "RUECKGANG_STARK": ("rueckgang_stark", 0.01, 0.10),
