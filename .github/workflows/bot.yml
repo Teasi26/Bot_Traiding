@@ -1,10 +1,10 @@
 name: Demo-Handelsbot
 
-# Stündlich zu Börsenzeiten New York (UTC, deckt Sommer- und Winterzeit ab), Mo-Fr.
-# Jeder Lauf dauert knapp eine Stunde und prüft alle 2 Minuten; ausserhalb der Börsenzeit tut er nichts.
+# Stündlich rund um die Uhr: Krypto wird immer gehandelt, Aktien nur während der Börsenzeit in New York.
+# Jeder Lauf dauert knapp eine Stunde und prüft alle 2 Minuten.
 on:
   schedule:
-    - cron: "5 13-20 * * 1-5"
+    - cron: "5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,13 @@ jobs:
       TZ: Europe/Zurich
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: numpy installieren
+        run: pip install --quiet numpy
 
       - name: Letzten Stand holen
         run: |
