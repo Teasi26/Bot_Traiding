@@ -10,6 +10,7 @@ gezogen, damit Zufallstreffer nicht zu hohe Werte ergeben. Im Test auf den letzt
 alle früheren Signaltage zählte. Es bleibt ein Rückblick, keine Garantie für die Zukunft.
 Gekauft wird eine Aktie ab 60 %, eine Kryptowährung ab 70 % Chance.
 
+Krypto hat eigene Regeln (Standard: Ziel +8 %, sichern ab +2 %, Rückgang 3 bzw. 6 Punkte, max. 5 Kryptos).
 Verkauft wird, sobald eine Position 5 % im Plus ist, der Trend "Abwärts" kippt oder der RSI über 75 steigt.
 Quick-Trade: War eine Position schon mindestens 1 % im Plus und fällt sie danach von ihrem Höchststand zurück:
   - weniger als 1.5 Prozentpunkte: leichter Rückgang, behalten
@@ -59,7 +60,14 @@ SICHERN_AB = 0.01     # Quick-Trade greift, sobald eine Position einmal 1 % im P
 RUECKGANG = 0.015     # ab diesem Rückgang vom Höchststand verkaufen, wenn die Aussicht nicht mehr gut ist
 RUECKGANG_STARK = 0.03  # ab diesem Rückgang immer verkaufen
 SPERRE_TAGE = 5       # nach einem Verkauf diesen Wert so lange nicht wieder kaufen
-MAX_POSITIONEN = 15   # höchstens so viele Werte gleichzeitig
+MAX_POSITIONEN = 15   # höchstens so viele Aktien gleichzeitig
+# Krypto hat eigene Regeln (in der App unter Regeln → Krypto), Standard etwas geduldiger, weil Krypto stärker schwankt
+GEWINN_ZIEL_KRYPTO = 0.08
+SICHERN_AB_KRYPTO = 0.02
+RUECKGANG_KRYPTO = 0.03
+RUECKGANG_STARK_KRYPTO = 0.06
+BETRAG_USD_KRYPTO = 5
+MAX_POSITIONEN_KRYPTO = 5  # höchstens so viele Kryptos gleichzeitig
 
 # Livio kann diese Werte in der Handy-App ändern; sie landen vor jedem Aufruf in dieser Datei.
 # Werte ausserhalb der Grenzen werden auf die Grenze gesetzt, fehlende bleiben beim Standard oben.
@@ -68,7 +76,11 @@ GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "MIN_CHANCE_KRYPTO": ("min_
            "GEWINN_ZIEL": ("gewinn_ziel", 0.01, 0.15),
            "SICHERN_AB": ("sichern_ab", 0.005, 0.05), "RUECKGANG": ("rueckgang", 0.005, 0.05),
            "RUECKGANG_STARK": ("rueckgang_stark", 0.01, 0.10),
-           "MAX_POSITIONEN": ("max_positionen", 1, 90), "BETRAG_USD": ("betrag", 1.0, 5000.0)}
+           "MAX_POSITIONEN": ("max_positionen", 1, 90), "BETRAG_USD": ("betrag", 1.0, 5000.0),
+           "GEWINN_ZIEL_KRYPTO": ("gewinn_ziel_krypto", 0.01, 0.30),
+           "SICHERN_AB_KRYPTO": ("sichern_ab_krypto", 0.005, 0.10), "RUECKGANG_KRYPTO": ("rueckgang_krypto", 0.005, 0.10),
+           "RUECKGANG_STARK_KRYPTO": ("rueckgang_stark_krypto", 0.01, 0.20),
+           "MAX_POSITIONEN_KRYPTO": ("max_positionen_krypto", 0, 50), "BETRAG_USD_KRYPTO": ("betrag_krypto", 1.0, 5000.0)}
 KAEUFE_PAUSIERT = False  # in der App einschaltbar: nur noch verkaufen, nichts Neues kaufen
 KRYPTO_AKTIV = True      # in der App ausschaltbar: dann keine neuen Krypto-Käufe
 ZIELE = {}  # eigenes Gewinnziel pro Wert aus der App (Depot), sonst gilt GEWINN_ZIEL
@@ -253,8 +265,9 @@ def einstellungen_laden():
             globals()[name_] = round(wert) if isinstance(tief, int) else wert
         except (KeyError, TypeError, ValueError):
             pass
-    global RUECKGANG_STARK, KAEUFE_PAUSIERT, KRYPTO_AKTIV, ZIELE
+    global RUECKGANG_STARK, RUECKGANG_STARK_KRYPTO, KAEUFE_PAUSIERT, KRYPTO_AKTIV, ZIELE
     RUECKGANG_STARK = max(RUECKGANG_STARK, RUECKGANG)
+    RUECKGANG_STARK_KRYPTO = max(RUECKGANG_STARK_KRYPTO, RUECKGANG_KRYPTO)
     KAEUFE_PAUSIERT = werte.get("kaeufe_pausiert") is True
     KRYPTO_AKTIV = werte.get("krypto_aktiv") is not False
     ZIELE = {}
@@ -272,18 +285,25 @@ def einstellungen():
     return {**werte, "kaeufe_pausiert": KAEUFE_PAUSIERT, "krypto_aktiv": KRYPTO_AKTIV,
             "ziele": {name(s_): z for s_, z in ZIELE.items()}}
 
-def mindest_chance(symbol):
-    return MIN_CHANCE_KRYPTO if ist_krypto(symbol) else MIN_CHANCE
+def regel(name_, symbol):
+    """Wert einer Regel für diesen Wert: Krypto hat eigene Werte (NAME_KRYPTO)."""
+    return globals()[name_ + "_KRYPTO"] if ist_krypto(symbol) else globals()[name_]
 
-def quick_verkauf(hoechst, gewinn, d):
+def mindest_chance(symbol):
+    return regel("MIN_CHANCE", symbol)
+
+def gewinn_ziel(symbol):
+    return ZIELE.get(symbol, regel("GEWINN_ZIEL", symbol))
+
+def quick_verkauf(symbol, hoechst, gewinn, d):
     """Gewinn sichern bei starkem Rückgang; leichte Rückgänge mit guter Aussicht aussitzen."""
-    if hoechst < SICHERN_AB:
+    if hoechst < regel("SICHERN_AB", symbol):
         return False
     rueckgang = hoechst - gewinn
-    if rueckgang >= RUECKGANG_STARK:
+    if rueckgang >= regel("RUECKGANG_STARK", symbol):
         return True
-    aussicht_gut = d is not None and kaufsignal(d[1]) and d[2] >= mindest_chance(d[0])
-    return rueckgang >= RUECKGANG and not aussicht_gut
+    aussicht_gut = d is not None and kaufsignal(d[1]) and d[2] >= mindest_chance(symbol)
+    return rueckgang >= regel("RUECKGANG", symbol) and not aussicht_gut
 
 def main(hist, boerse_offen):
     """Eine Prüfrunde: handelt und gibt den Logeintrag als Markdown zurück."""
@@ -317,19 +337,21 @@ def main(hist, boerse_offen):
     hoch = {s_: max(hoch.get(s_, g), g) for s_, g in positionen.items()}
 
     verkauft, bestand, zeilen = [], [], []
+    behalten = []  # Symbole, die nach dieser Runde im Depot bleiben (für die Höchstzahl pro Gruppe)
     for symbol in sorted(set(positionen) | offen):
         d = daten.get(symbol)
         gewinn = positionen.get(symbol)
         handelbar_jetzt = ist_krypto(symbol) or boerse_offen
         if symbol in offen:
             bestand.append(name(symbol))
+            behalten.append(symbol)
             zeilen.append(f"⏳ {name(symbol)}: Auftrag wartet auf Ausführung")
         elif (gewinn is not None and handelbar_jetzt and symbol not in heute_gekauft
-              and (gewinn >= ZIELE.get(symbol, GEWINN_ZIEL) or (d and verkaufsignal(d[1]))
-                   or quick_verkauf(hoch[symbol], gewinn, d))):
-            if gewinn >= ZIELE.get(symbol, GEWINN_ZIEL):
+              and (gewinn >= gewinn_ziel(symbol) or (d and verkaufsignal(d[1]))
+                   or quick_verkauf(symbol, hoch[symbol], gewinn, d))):
+            if gewinn >= gewinn_ziel(symbol):
                 grund = f"+{gewinn:.1%} Gewinnziel erreicht"
-            elif quick_verkauf(hoch[symbol], gewinn, d):
+            elif quick_verkauf(symbol, hoch[symbol], gewinn, d):
                 grund = f"Quick-Trade, Gewinn gesichert (Höchststand {hoch[symbol]:+.1%})"
             else:
                 grund = "Verkaufssignal"
@@ -341,9 +363,11 @@ def main(hist, boerse_offen):
                 hoch.pop(symbol, None)
             except SystemExit as e:
                 bestand.append(name(symbol))
+                behalten.append(symbol)
                 zeilen.append(f"⚠️ {name(symbol)}: Verkauf abgelehnt ({e})")
         elif symbol in positionen:
             bestand.append(name(symbol))
+            behalten.append(symbol)
             zusatz = " · heute gekauft, Verkauf frühestens morgen" if symbol in heute_gekauft else ""
             zeilen.append((zeile(*d, "HALTEN", True) if d else f"💼 {name(symbol)}") + f" · {gewinn:+.1%}" + zusatz)
 
@@ -358,12 +382,20 @@ def main(hist, boerse_offen):
         return boerse_offen and d[2] >= MIN_CHANCE
     kandidaten = sorted((d for s_, d in daten.items() if s_ not in set(positionen) | offen | gesperrt
                          and kaufsignal(d[1]) and kaufbar(s_, d)), key=lambda d: -d[2])
-    platz = 0 if KAEUFE_PAUSIERT else MAX_POSITIONEN - len(bestand)
-    betrag = round(min(BETRAG_USD, kapital / MAX_POSITIONEN), 2)
+    platz = {gruppe: 0 if KAEUFE_PAUSIERT else max(0, globals()["MAX_POSITIONEN" + endung]
+                                                     - sum(ist_krypto(s_) == (gruppe == "krypto") for s_ in behalten))
+             for gruppe, endung in (("aktien", ""), ("krypto", "_KRYPTO"))}
+    # Einsatz höchstens Kapital / alle möglichen Positionen, damit es auch mit wenig Geld aufgeht
+    alle_plaetze = max(1, MAX_POSITIONEN + (MAX_POSITIONEN_KRYPTO if KRYPTO_AKTIV else 0))
+    betraege = {gruppe: round(min(globals()["BETRAG_USD" + endung], kapital / alle_plaetze), 2)
+                for gruppe, endung in (("aktien", ""), ("krypto", "_KRYPTO"))}
     gekauft = []
     for d in kandidaten:
-        if len(gekauft) >= platz or cash < betrag or betrag < 1:
-            break
+        gruppe = "krypto" if ist_krypto(d[0]) else "aktien"
+        betrag = betraege[gruppe]
+        if platz[gruppe] <= 0 or cash < betrag or betrag < 1:
+            continue
+        platz[gruppe] -= 1
         try:
             if not PROBELAUF:
                 alpaca("POST", "/orders", {"symbol": auftrag_symbol(d[0]), "notional": f"{betrag:.2f}", "side": "buy",
@@ -374,11 +406,13 @@ def main(hist, boerse_offen):
         gekauft.append(name(d[0]))
         zeilen.append(zeile(*d, "KAUFEN", False) + f" · {betrag:.2f} $")
         cash -= betrag
-    LAUF.update(gekauft=gekauft, verkauft=verkauft, geprueft=len(daten), signale=len(kandidaten), betrag=betrag)
+    LAUF.update(gekauft=gekauft, verkauft=verkauft, geprueft=len(daten), signale=len(kandidaten),
+                betrag=betraege["aktien"], betrag_krypto=betraege["krypto"])
     anzahl_k = sum(ist_krypto(s_) for s_ in daten)
     konto_text += (f"  \n{len(daten) - anzahl_k} Aktien und {anzahl_k} Kryptos geprüft"
                    f"{'' if boerse_offen else ' (Börse zu, nur Krypto gehandelt)'} · {len(kandidaten)} mit Kaufsignal"
-                   f" · {betrag:.2f} $ pro Kauf · Depot max. {MAX_POSITIONEN}")
+                   f" · pro Kauf {betraege['aktien']:.2f} $ (Aktie) / {betraege['krypto']:.2f} $ (Krypto)"
+                   f" · Depot max. {MAX_POSITIONEN} Aktien und {MAX_POSITIONEN_KRYPTO} Kryptos")
     return eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen)
 
 def eintrag(kopf, konto_text, gekauft, verkauft, bestand, zeilen=None):
