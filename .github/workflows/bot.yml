@@ -1,0 +1,55 @@
+name: Demo-Handelsbot
+
+# Stündlich rund um die Uhr: Krypto wird immer gehandelt, Aktien nur während der Börsenzeit in New York.
+# Jeder Lauf dauert knapp eine Stunde und prüft alle 2 Minuten.
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: handelsbot
+  cancel-in-progress: false
+
+jobs:
+  handel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+      ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
+      BOT_ORDNER: daten
+      TZ: Europe/Zurich
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: numpy installieren
+        run: pip install --quiet numpy
+
+      - name: Letzten Stand holen
+        run: |
+          mkdir -p daten
+          if git fetch -q origin bot-daten; then
+            for f in status.json handelslog.md hoechststand.json; do
+              git show origin/bot-daten:$f > daten/$f 2>/dev/null || rm -f daten/$f
+            done
+          fi
+          ./abgleich.sh nur-holen
+
+      - name: Bot laufen lassen
+        run: |
+          python3 handel.py &
+          bot=$!
+          while kill -0 $bot 2>/dev/null; do
+            sleep 120
+            ./abgleich.sh
+          done
+          wait $bot || echo "Bot mit Fehler beendet"
+          ./abgleich.sh

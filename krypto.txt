@@ -1,0 +1,101 @@
+# 100 Kryptowährungen (grösste nach Marktwert, ohne Stablecoins). Symbol;Name;Yahoo-Kürzel;bei Alpaca handelbar
+BTC;Bitcoin;BTC-USD;1
+ETH;Ethereum;ETH-USD;1
+BNB;BNB;BNB-USD;0
+XRP;XRP;XRP-USD;1
+SOL;Solana;SOL-USD;1
+TRX;TRON;TRX-USD;0
+ZEC;Zcash;ZEC-USD;0
+HYPE;Hyperliquid;HYPE32196-USD;1
+DOGE;Dogecoin;DOGE-USD;1
+XMR;Monero;XMR-USD;0
+LINK;Chainlink;LINK-USD;1
+LEO;LEO Token;LEO-USD;0
+ADA;Cardano;ADA-USD;1
+NEAR;NEAR Protocol;NEAR-USD;0
+XLM;Stellar;XLM-USD;0
+BCH;Bitcoin Cash;BCH-USD;1
+LTC;Litecoin;LTC-USD;1
+UNI;Uniswap;UNI7083-USD;1
+AVAX;Avalanche;AVAX-USD;1
+GRAM;Gram (prev. Toncoin);GRAM-USD;0
+HBAR;Hedera;HBAR-USD;0
+SHIB;Shiba Inu;SHIB-USD;1
+QNT;Quant;QNT-USD;0
+ENA;Ethena;ENA-USD;0
+CRO;Cronos;CRO-USD;0
+OKB;OKB;OKB-USD;0
+AAVE;Aave;AAVE-USD;1
+PEPE;Pepe;PEPE24478-USD;1
+ONDO;Ondo;ONDO-USD;1
+DOT;Polkadot;DOT-USD;1
+WLD;Worldcoin;WLD-USD;0
+SKY;Sky;SKY33038-USD;1
+ICP;Internet Computer;ICP-USD;0
+HTX;HTX DAO;HTX-USD;0
+BGB;Bitget Token;BGB-USD;0
+ETC;Ethereum Classic;ETC-USD;0
+ARB;Arbitrum;ARB11841-USD;1
+JST;JUST;JST-USD;0
+KCS;KuCoin;KCS-USD;0
+GT;Gate;GT-USD;0
+KAS;Kaspa;KAS-USD;0
+POL;POL (ex-MATIC);POL28321-USD;1
+ALGO;Algorand;ALGO-USD;0
+ATOM;Cosmos Hub;ATOM-USD;0
+RENDER;Render;RENDER-USD;1
+NEXO;NEXO;NEXO-USD;0
+INJ;Injective;INJ-USD;0
+FIL;Filecoin;FIL-USD;1
+DASH;Dash;DASH-USD;0
+XDC;XDC Network;XDC-USD;0
+CAKE;PancakeSwap;CAKE-USD;0
+NIGHT;Midnight;NIGHT-USD;0
+ETHFI;Ether.fi;ETHFI-USD;0
+BDX;Beldex;BDX-USD;0
+PYTH;Pyth Network;PYTH-USD;0
+VET;VeChain;VET-USD;0
+FLR;Flare;FLR-USD;0
+CRV;Curve DAO;CRV-USD;1
+TIA;Celestia;TIA-USD;0
+TRUMP;Official Trump;TRUMP35336-USD;1
+RAY;Raydium;RAY-USD;0
+AKE;Akedo;AKE-USD;0
+FET;Artificial Superintelligence Alliance;FET-USD;0
+VIRTUAL;Virtuals Protocol;VIRTUAL-USD;0
+XPL;Plasma;XPL-USD;0
+SEI;Sei;SEI-USD;0
+STRK;Starknet;STRK-USD;0
+BSV;Bitcoin SV;BSV-USD;0
+BTT;BitTorrent;BTT-USD;0
+PENDLE;Pendle;PENDLE-USD;0
+SUN;Sun Token;SUN-USD;0
+LDO;Lido DAO;LDO-USD;1
+XTZ;Tezos;XTZ-USD;1
+GNO;Gnosis;GNO-USD;0
+PIEVERSE;Pieverse;PIEVERSE-USD;0
+OHM;Olympus;OHM-USD;0
+KITE;Kite;KITE-USD;0
+BONK;Bonk;BONK-USD;1
+DCR;Decred;DCR-USD;0
+OP;Optimism;OP-USD;0
+MON;Monad;MON-USD;0
+CFX;Conflux;CFX-USD;0
+LUNC;Terra Luna Classic;LUNC-USD;0
+GRT;The Graph;GRT6719-USD;1
+SHFL;Shuffle;SHFL-USD;0
+AR;Arweave;AR-USD;0
+JTO;Jito;JTO-USD;0
+FLOKI;FLOKI;FLOKI-USD;0
+KAIA;Kaia;KAIA-USD;0
+KMNO;Kamino;KMNO-USD;0
+ENS;Ethereum Name Service;ENS-USD;0
+BAT;Basic Attention;BAT-USD;1
+CVX;Convex Finance;CVX-USD;0
+JASMY;JasmyCoin;JASMY-USD;0
+RUNE;THORChain;RUNE-USD;0
+ZBCN;Zebec Network;ZBCN-USD;0
+AKT;Akash Network;AKT-USD;0
+WIF;dogwifhat;WIF-USD;1
+SUSHI;SushiSwap;SUSHI-USD;1
+YFI;yearn.finance;YFI-USD;1
