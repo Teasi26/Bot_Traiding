@@ -13,3 +13,4 @@ Starten: `python3 handel.py` (braucht die Umgebungsvariablen `ALPACA_KEY` und `A
 
 - Branch `bot-daten`: Log, `status.json` und `hoechststand.json`, alle 2 Minuten neu (immer nur ein Commit).
 - Branch `bot-einstellungen`: `einstellungen.json` aus der Handy-App; der Bot liest sie alle 2 Minuten.
+- `app_abgleich.sh`: läuft in der stündlichen Claude-Aufgabe (handelt nie). Schickt die App-Einstellungen nach `bot-einstellungen` und kopiert alle 2 Minuten die Daten aus `bot-daten` in den Projektordner, den die Handy-App liest.
