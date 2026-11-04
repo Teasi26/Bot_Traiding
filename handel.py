@@ -10,7 +10,10 @@ gezogen, damit Zufallstreffer nicht zu hohe Werte ergeben. Im Test auf den letzt
 alle früheren Signaltage zählte. Es bleibt ein Rückblick, keine Garantie für die Zukunft.
 Gekauft wird eine Aktie ab 60 %, eine Kryptowährung ab 70 % Chance.
 
-Krypto hat eigene Regeln (Standard: Ziel +8 %, sichern ab +2 %, Rückgang 3 bzw. 6 Punkte, max. 5 Kryptos).
+Verlust-Stopp: Fällt eine Position unter -5 % (Warnung) und danach noch 2 Prozentpunkte weiter (also -7 %),
+wird sie verkauft, damit aus einem kleinen Verlust kein grosser wird. Erholt sie sich vorher, bleibt sie.
+Krypto hat eigene Regeln (Standard: Ziel +8 %, sichern ab +2 %, Rückgang 3 bzw. 6 Punkte, Verlust-Stopp
+-8 % plus 4 Punkte = -12 %, max. 5 Kryptos).
 Verkauft wird, sobald eine Position 5 % im Plus ist, der Trend "Abwärts" kippt oder der RSI über 75 steigt.
 Quick-Trade: War eine Position schon mindestens 1 % im Plus und fällt sie danach von ihrem Höchststand zurück:
   - weniger als 1.5 Prozentpunkte: leichter Rückgang, behalten
@@ -68,6 +71,10 @@ RUECKGANG_KRYPTO = 0.03
 RUECKGANG_STARK_KRYPTO = 0.06
 BETRAG_USD_KRYPTO = 5
 MAX_POSITIONEN_KRYPTO = 5  # höchstens so viele Kryptos gleichzeitig
+VERLUST_WARNUNG = 0.05         # ab diesem Verlust steht eine Aktie unter Beobachtung
+VERLUST_WEITER = 0.02          # fällt sie danach so viele Punkte weiter, wird verkauft
+VERLUST_WARNUNG_KRYPTO = 0.08
+VERLUST_WEITER_KRYPTO = 0.04
 
 # Livio kann diese Werte in der Handy-App ändern; sie landen vor jedem Aufruf in dieser Datei.
 # Werte ausserhalb der Grenzen werden auf die Grenze gesetzt, fehlende bleiben beim Standard oben.
@@ -80,7 +87,10 @@ GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "MIN_CHANCE_KRYPTO": ("min_
            "GEWINN_ZIEL_KRYPTO": ("gewinn_ziel_krypto", 0.01, 0.30),
            "SICHERN_AB_KRYPTO": ("sichern_ab_krypto", 0.005, 0.10), "RUECKGANG_KRYPTO": ("rueckgang_krypto", 0.005, 0.10),
            "RUECKGANG_STARK_KRYPTO": ("rueckgang_stark_krypto", 0.01, 0.20),
-           "MAX_POSITIONEN_KRYPTO": ("max_positionen_krypto", 0, 50), "BETRAG_USD_KRYPTO": ("betrag_krypto", 1.0, 5000.0)}
+           "MAX_POSITIONEN_KRYPTO": ("max_positionen_krypto", 0, 50), "BETRAG_USD_KRYPTO": ("betrag_krypto", 1.0, 5000.0),
+           "VERLUST_WARNUNG": ("verlust_warnung", 0.01, 0.30), "VERLUST_WEITER": ("verlust_weiter", 0.0, 0.20),
+           "VERLUST_WARNUNG_KRYPTO": ("verlust_warnung_krypto", 0.01, 0.50),
+           "VERLUST_WEITER_KRYPTO": ("verlust_weiter_krypto", 0.0, 0.30)}
 KAEUFE_PAUSIERT = False  # in der App einschaltbar: nur noch verkaufen, nichts Neues kaufen
 KRYPTO_AKTIV = True      # in der App ausschaltbar: dann keine neuen Krypto-Käufe
 ZIELE = {}  # eigenes Gewinnziel pro Wert aus der App (Depot), sonst gilt GEWINN_ZIEL
@@ -295,6 +305,13 @@ def mindest_chance(symbol):
 def gewinn_ziel(symbol):
     return ZIELE.get(symbol, regel("GEWINN_ZIEL", symbol))
 
+def unter_beobachtung(symbol, gewinn):
+    return gewinn <= -regel("VERLUST_WARNUNG", symbol)
+
+def verlust_stopp(symbol, gewinn):
+    """Erst Warnung, dann weiter gefallen: verkaufen, bevor der Verlust gross wird."""
+    return gewinn <= -(regel("VERLUST_WARNUNG", symbol) + regel("VERLUST_WEITER", symbol))
+
 def quick_verkauf(symbol, hoechst, gewinn, d):
     """Gewinn sichern bei starkem Rückgang; leichte Rückgänge mit guter Aussicht aussitzen."""
     if hoechst < regel("SICHERN_AB", symbol):
@@ -348,9 +365,11 @@ def main(hist, boerse_offen):
             zeilen.append(f"⏳ {name(symbol)}: Auftrag wartet auf Ausführung")
         elif (gewinn is not None and handelbar_jetzt and symbol not in heute_gekauft
               and (gewinn >= gewinn_ziel(symbol) or (d and verkaufsignal(d[1]))
-                   or quick_verkauf(symbol, hoch[symbol], gewinn, d))):
+                   or quick_verkauf(symbol, hoch[symbol], gewinn, d) or verlust_stopp(symbol, gewinn))):
             if gewinn >= gewinn_ziel(symbol):
                 grund = f"+{gewinn:.1%} Gewinnziel erreicht"
+            elif verlust_stopp(symbol, gewinn):
+                grund = f"Verlust-Stopp bei {gewinn:+.1%}, weiter gefallen nach der Warnung"
             elif quick_verkauf(symbol, hoch[symbol], gewinn, d):
                 grund = f"Quick-Trade, Gewinn gesichert (Höchststand {hoch[symbol]:+.1%})"
             else:
@@ -369,6 +388,9 @@ def main(hist, boerse_offen):
             bestand.append(name(symbol))
             behalten.append(symbol)
             zusatz = " · heute gekauft, Verkauf frühestens morgen" if symbol in heute_gekauft else ""
+            if gewinn is not None and unter_beobachtung(symbol, gewinn):
+                stopp = regel("VERLUST_WARNUNG", symbol) + regel("VERLUST_WEITER", symbol)
+                zusatz += f" · ⚠️ unter Beobachtung, Verkauf bei -{stopp:.1%}"
             zeilen.append((zeile(*d, "HALTEN", True) if d else f"💼 {name(symbol)}") + f" · {gewinn:+.1%}" + zusatz)
 
     if not PROBELAUF and os.path.isdir(os.path.dirname(HOCHDATEI)):
@@ -461,6 +483,8 @@ def status_schreiben(hist):
                    "wert": float(p["market_value"]), "einstand": float(p["cost_basis"]),
                    "kurs": float(p["current_price"]), "gewinn": float(p["unrealized_pl"]),
                    "prozent": float(p["unrealized_plpc"]), "heute": float(p["change_today"] or 0),
+                   "beobachtung": unter_beobachtung(p["symbol"], float(p["unrealized_plpc"])),
+                   "stopp": -(regel("VERLUST_WARNUNG", p["symbol"]) + regel("VERLUST_WEITER", p["symbol"])),
                    "chance": round(hist[p["symbol"]][2], 4) if p["symbol"] in hist else None}
                   for p in roh]
     auftraege = [{"symbol": o["symbol"].replace("/USD", ""), "seite": o["side"], "status": o["status"],
