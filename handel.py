@@ -24,15 +24,14 @@ Eine Aktie, die heute gekauft wurde, wird erst am nächsten Börsentag verkauft:
 dürfen höchstens 3 Tageshandel in 5 Tagen machen (Pattern-Day-Trader-Regel). Für Krypto gilt das nicht.
 
 Zwei Töpfe (Aufteilung in der App, Standard halb-halb):
-  ⚡ Day-Trade (kurzfristig): Strategie "Trend" (die Regeln oben) und "Rücksetzer" (Connors RSI 2:
-     im Aufwärtstrend nach einem kurzen starken Fall kaufen, verkaufen sobald der Kurs wieder über
-     seinem 5-Tage-Schnitt liegt). Alle Verkaufsregeln oben gelten.
-  📅 Long-Term (langfristig): Strategie "Momentum" (die stärksten 10 % der letzten 12 Monate, ohne den
-     letzten Monat, über SMA 200). Gehalten, bis der Kurs unter SMA 200 fällt, der Wert nicht mehr
-     unter den stärksten 30 % ist oder der Long-Term-Verlust-Stopp (-15 %) greift. Kein Quick-Trade.
-  Jede Strategie hat ihre eigene Gewinnchance (ähnlichste frühere Signaltage dieser Strategie) und
-  kauft nur ab der Mindest-Chance. Welche Strategie einen Wert gekauft hat, steht in status.json.
-  Keine Strategie garantiert Gewinn.
+  ⚡ Day-Trade (kurzfristig) und 📅 Long-Term (langfristig), mit 50 Strategien aus strategien.py
+  (31 Day-Trade, 19 Long-Term). Jede hat ihre eigene Gewinnchance (ähnlichste frühere Signaltage dieser
+  Strategie), ihren eigenen Ausstieg und einen Schalter in der App. Standardmässig eingeschaltet sind nur
+  die, die den Rückblick-Test (strategien_test.py → strategien_test.json) bestanden haben, und sie handeln
+  nur in der Gruppe (Aktien/Krypto), in der sie bestanden haben. Day-Trade-Werte unterliegen zusätzlich
+  allen Verkaufsregeln oben; Long-Term-Werte werden gehalten, bis der Kurs unter SMA 200 fällt, der
+  Long-Term-Verlust-Stopp (-15 %) greift oder (bei Rang-Strategien) der Wert nicht mehr unter den
+  stärksten 30 % ist. Keine Strategie garantiert Gewinn; mehr Strategien heisst nicht mehr Gewinn.
 
 Einsatz pro Kauf: Day-Trade der Betrag aus den Einstellungen, höchstens Topf / maximale Positionen,
 Long-Term Topf / maximale Long-Term-Werte, immer mindestens 1 $. Gekauft wird in Teilstücken.
@@ -46,6 +45,7 @@ Ohne Schlüssel läuft das Skript als Probelauf und zeigt nur, was es tun würde
 import concurrent.futures, datetime, json, os, time, urllib.error, urllib.parse, urllib.request
 from zoneinfo import ZoneInfo
 import numpy as np
+import strategien as S
 
 # Datenordner: auf GitHub setzt der Ablauf BOT_ORDNER, sonst der Projektordner
 ORDNER = os.environ.get("BOT_ORDNER", "/mnt/project-files/market-bot")
@@ -87,17 +87,20 @@ VERLUST_WEITER = 0.02          # fällt sie danach so viele Punkte weiter, wird 
 VERLUST_WARNUNG_KRYPTO = 0.08
 VERLUST_WEITER_KRYPTO = 0.04
 
-# Strategien (in der App einzeln ein- und ausschaltbar). Jede hat ihre eigene Gewinnchance:
-# Der Bot sucht die 500 ähnlichsten früheren Tage, an denen genau diese Strategie ein Signal gab,
-# und zählt, wie oft der Handel damals mit Gewinn endete. Gekauft wird nur ab der Mindest-Chance.
-STRATEGIE_TREND = True     # Day-Trade: Aufwärtstrend + RSI unter 70 (die bisherige Regel)
-STRATEGIE_RUECKSETZER = True  # Day-Trade: Kurs fällt kurz stark (RSI 2 unter 10) im Aufwärtstrend, Erholung abwarten
-STRATEGIE_MOMENTUM = True  # Long-Term: die stärksten 10 % der letzten 12 Monate kaufen und halten
-RSI2_GRENZE = 10           # Rücksetzer: RSI über 2 Tage unter diesem Wert
-RSI2_MAX_TAGE = 10         # Rücksetzer: spätestens nach so vielen Tagen ist der Handel vorbei
-MOMENTUM_TOP = 0.10        # Momentum: kaufen, wenn unter den besten 10 % der Gruppe
-MOMENTUM_BLEIBT = 0.30     # Momentum: verkaufen, wenn nicht mehr unter den besten 30 %
-MOMENTUM_TAGE = 63         # Momentum: Gewinnchance für etwa 3 Monate halten
+# Strategien: 50 bekannte Strategien in strategien.py, je mit Ein/Aus in der App. Jede hat ihre eigene
+# Gewinnchance (die 500 ähnlichsten früheren Signaltage genau dieser Strategie) und kauft nur ab der Mindest-Chance.
+# Eine eingeschaltete Strategie handelt nur in den Gruppen (Aktien/Krypto), in denen sie den Rückblick-Test
+# (strategien_test.json) bestanden hat; hat sie ihn nirgends bestanden, in beiden.
+# Standard: eingeschaltet, wenn sie den Test in mindestens einer Gruppe bestanden hat.
+TESTDATEI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategien_test.json")
+try:
+    TEST = json.load(open(TESTDATEI))
+except (OSError, ValueError):
+    TEST = {}
+STRATEGIEN_AN = {sid: bool(TEST.get("standard", {}).get(sid, sid in ("ruecksetzer", "momentum")))
+                 for sid, *_ in S.STRATEGIEN}
+STRATEGIE_NAMEN = {sid: name_ for sid, name_, *_ in S.STRATEGIEN}
+MOMENTUM_BLEIBT = 0.30     # Rang-Strategien: verkaufen, wenn nicht mehr unter den besten 30 %
 
 # Geld aufteilen: so viel vom Kapital für Day-Trade (kurz), der Rest für Long-Term (lang)
 ANTEIL_KURZ = 0.5
@@ -121,9 +124,6 @@ GRENZEN = {"MIN_CHANCE": ("min_chance", 0.50, 0.80), "MIN_CHANCE_KRYPTO": ("min_
            "VERLUST_WEITER_KRYPTO": ("verlust_weiter_krypto", 0.0, 0.30),
            "ANTEIL_KURZ": ("anteil_kurz", 0.0, 1.0), "MAX_POSITIONEN_LANG": ("max_positionen_lang", 1, 30),
            "VERLUST_STOPP_LANG": ("verlust_stopp_lang", 0.03, 0.50)}
-SCHALTER = {"STRATEGIE_TREND": "strategie_trend", "STRATEGIE_RUECKSETZER": "strategie_ruecksetzer",
-            "STRATEGIE_MOMENTUM": "strategie_momentum"}  # fehlt der Wert in der App: eingeschaltet
-STRATEGIE_NAMEN = {"trend": "Trend", "ruecksetzer": "Rücksetzer", "momentum": "Momentum"}
 KAEUFE_PAUSIERT = False  # in der App einschaltbar: nur noch verkaufen, nichts Neues kaufen
 KRYPTO_AKTIV = True      # in der App ausschaltbar: dann keine neuen Krypto-Käufe
 ZIELE = {}  # eigenes Gewinnziel pro Wert aus der App (Depot), sonst gilt GEWINN_ZIEL
@@ -203,89 +203,32 @@ def merkmale(werte):
     spaeter[:-HALTEDAUER] = w[HALTEDAUER:] / w[:-HALTEDAUER] - 1
     return F, signal, spaeter
 
-def ruecksetzer_ergebnis(w):
-    """Rücksetzer-Strategie: Signaltage und wie der Handel damals ausging.
-    Signal: Kurs über SMA 200 und RSI über 2 Tage unter 10. Verkauf, sobald der Kurs wieder über
-    seinem 5-Tage-Schnitt schliesst, spätestens nach 10 Tagen."""
-    n = len(w)
-    s200, s5 = _gleitend(w, 200), _gleitend(w, 5)
-    r2 = np.array([np.nan if r is None else r for r in rsi_reihe(list(w), 2)])
-    signal = (w > s200) & (r2 < RSI2_GRENZE)
-    ergebnis = np.full(n, np.nan)
-    for i in np.where(signal)[0]:
-        for j in range(i + 1, min(i + RSI2_MAX_TAGE, n - 1) + 1):
-            if w[j] > s5[j] or j == i + RSI2_MAX_TAGE:
-                ergebnis[i] = w[j] / w[i] - 1
-                break
-    return signal, ergebnis
-
-def momentum_raenge(alle):
-    """Pro Wert und Tag: Platz unter allen Werten der Gruppe nach der Kursänderung über 12 Monate
-    (ohne den letzten Monat), als Anteil: 1.0 = der stärkste, 0.0 = der schwächste."""
-    lang = max(len(w) for w in alle.values())
-    M = np.full((len(alle), lang), np.nan)
-    for k, w in enumerate(alle.values()):
-        w = np.array(w, float)
-        m = np.full(len(w), np.nan)
-        m[252:] = w[231:-21] / w[:-252] - 1
-        M[k, lang - len(w):] = m  # rechtsbündig: der letzte Tag liegt bei allen gleich
-    gueltig = np.isfinite(M)
-    rang = np.argsort(np.argsort(np.where(gueltig, M, -np.inf), 0), 0).astype(float)
-    anzahl = gueltig.sum(0)
-    rang = (rang - (len(alle) - anzahl)) / np.maximum(anzahl - 1, 1)
-    rang[~gueltig] = np.nan
-    return {s_: rang[k, lang - len(w):] for k, (s_, w) in enumerate(alle.items())}
-
-def momentum_ergebnis(w, rang):
-    """Momentum-Strategie: Signal, wenn der Wert unter den besten 10 % ist und über SMA 200 liegt.
-    Ergebnis: Kursänderung 3 Monate später."""
-    signal = (w > _gleitend(w, 200)) & (np.nan_to_num(rang, nan=0) >= 1 - MOMENTUM_TOP)
-    ergebnis = np.full(len(w), np.nan)
-    ergebnis[:-MOMENTUM_TAGE] = w[MOMENTUM_TAGE:] / w[:-MOMENTUM_TAGE] - 1
-    return signal, ergebnis
-
 def chancen(alle):
-    """Gewinnchance für den heutigen Tag jedes Werts, gelernt aus allen Werten derselben Gruppe.
-    Gibt {Symbol: (Chance, Fälle)} für die Trend-Regel und {Symbol: {Strategie: Chance}} zurück."""
-    raenge = momentum_raenge(alle)
-    lern = {"trend": ([], []), "ruecksetzer": ([], []), "momentum": ([], [])}
-    heute_F, extra = {}, {}
-    for symbol, werte in alle.items():
-        F, _, spaeter = merkmale(werte)
-        w = np.array(werte, float)
+    """Kennzahlen und Gewinnchance je Strategie für den heutigen Tag jedes Werts, gelernt aus allen
+    Werten derselben Gruppe. Gibt {Symbol: {Strategie: Chance, "rang": {Feld: Platz}}} zurück."""
+    K = {s_: S.kennzahlen(w) for s_, w in alle.items()}
+    S.raenge(K)
+    lern = {sid: ([], []) for sid, *_ in S.STRATEGIEN}
+    heute_F, out = {}, {}
+    for symbol, k in K.items():
+        F = S.merkmale(k)
         ok_F = np.isfinite(F).all(1)
-        for strategie, (signal, ergebnis) in (("trend", (np.ones(len(w), bool), spaeter)),
-                                              ("ruecksetzer", ruecksetzer_ergebnis(w)),
-                                              ("momentum", momentum_ergebnis(w, raenge[symbol]))):
-            idx = np.where(ok_F & signal & np.isfinite(ergebnis))[0][-LERNTAGE:]
-            lern[strategie][0].append(F[idx])
-            lern[strategie][1].append(ergebnis[idx] > 0)
+        sig = S.signale(k)
+        for sid, _, _, ausstieg, _, _ in S.STRATEGIEN:
+            erg = S.ergebnis(k, ausstieg, sig[sid])
+            idx = np.where(ok_F & sig[sid] & np.isfinite(erg))[0][-LERNTAGE:]
+            lern[sid][0].append(F[idx])
+            lern[sid][1].append(erg[idx] > 0)
         if ok_F[-1]:
             heute_F[symbol] = F[-1]
-        extra[symbol] = {"rang": None if np.isnan(raenge[symbol][-1]) else float(raenge[symbol][-1])}
-    if not heute_F:
-        return {}, extra
-    out = {}
-    for strategie, (lF, ly) in lern.items():
-        for symbol, (chance, faelle) in nachbarn_chance(np.concatenate(lF), np.concatenate(ly), heute_F).items():
-            if strategie == "trend":
-                out[symbol] = (chance, faelle)
-            else:
-                extra[symbol][strategie] = chance
-    return out, extra
-
-def nachbarn_chance(X, y, heute_F):
-    """Anteil der 500 ähnlichsten früheren Tage, die mit Gewinn endeten (leicht zum Durchschnitt gezogen)."""
-    if len(X) < NACHBARN * 2:
-        return {s_: (0.0, 0) for s_ in heute_F}
-    mitte, streu = X.mean(0), X.std(0) + 1e-12
-    Z = (X - mitte) / streu
-    schnitt = y.mean()
-    out = {}
-    for symbol, f in heute_F.items():
-        abstand = (((Z - (f - mitte) / streu)) ** 2).sum(1)
-        nah = np.argpartition(abstand, NACHBARN)[:NACHBARN]
-        out[symbol] = (float((y[nah].sum() + DAEMPFUNG * schnitt) / (NACHBARN + DAEMPFUNG)), NACHBARN)
+        out[symbol] = {"rang": {f: k[f][-S.LIVE_TAGE:] for f in S.RANG_FELDER}}
+    namen = list(heute_F)
+    Q = np.array([heute_F[s_] for s_ in namen]) if namen else np.zeros((0, 7))
+    for sid, (lF, ly) in lern.items():
+        ch = S.nachbarn(np.concatenate(lF), np.concatenate(ly), Q, NACHBARN, DAEMPFUNG)
+        for s_, c in zip(namen, ch):
+            if np.isfinite(c):
+                out[s_][sid] = float(c)
     return out
 
 def alpaca(methode, pfad, daten=None, basis=BASIS):
@@ -319,7 +262,7 @@ def laden(symbol):
         return None
     return (symbol, werte) if len(werte) >= 250 else None
 
-STRAT = {}  # pro Wert: Gewinnchance je Strategie und Momentum-Platz (aus historie())
+STRAT = {}  # pro Wert: Gewinnchance je Strategie und Ränge in der Gruppe (aus historie())
 
 def historie():
     """{Symbol: [Symbol, Kurse, Chance, Fälle]} für alle Aktien und Kryptos."""
@@ -329,10 +272,9 @@ def historie():
     for gruppe in ([s_ for s_ in geladen if not ist_krypto(s_)], [s_ for s_ in geladen if ist_krypto(s_)]):
         if not gruppe:
             continue
-        trend, extra = chancen({s_: geladen[s_] for s_ in gruppe})
-        STRAT.update(extra)
-        for symbol, (chance, faelle) in trend.items():
-            hist[symbol] = [symbol, geladen[symbol], chance, faelle]
+        STRAT.update(chancen({s_: geladen[s_] for s_ in gruppe}))
+        for symbol in gruppe:
+            hist[symbol] = [symbol, geladen[symbol], STRAT[symbol].get("trend", 0.0), NACHBARN]
     return hist
 
 def heute(werte):
@@ -378,8 +320,10 @@ def einstellungen_laden():
     RUECKGANG_STARK_KRYPTO = max(RUECKGANG_STARK_KRYPTO, RUECKGANG_KRYPTO)
     KAEUFE_PAUSIERT = werte.get("kaeufe_pausiert") is True
     KRYPTO_AKTIV = werte.get("krypto_aktiv") is not False
-    for name_, feld in SCHALTER.items():
-        globals()[name_] = werte.get(feld) is not False
+    gewaehlt = werte.get("strategien") if isinstance(werte.get("strategien"), dict) else {}
+    for sid, *_ in S.STRATEGIEN:
+        standard = bool(TEST.get("standard", {}).get(sid, sid in ("ruecksetzer", "momentum")))
+        STRATEGIEN_AN[sid] = gewaehlt[sid] if isinstance(gewaehlt.get(sid), bool) else standard
     ZIELE = {}
     ziele = werte.get("ziele")
     for symbol, ziel in (ziele.items() if isinstance(ziele, dict) else []):
@@ -393,7 +337,7 @@ def einstellungen_laden():
 def einstellungen():
     werte = {feld: globals()[name_] for name_, (feld, _, _) in GRENZEN.items()}
     return {**werte, "kaeufe_pausiert": KAEUFE_PAUSIERT, "krypto_aktiv": KRYPTO_AKTIV,
-            **{feld: globals()[name_] for name_, feld in SCHALTER.items()},
+            "strategien": dict(STRATEGIEN_AN),
             "ziele": {name(s_): z for s_, z in ZIELE.items()}}
 
 def regel(name_, symbol):
@@ -425,23 +369,42 @@ def quick_verkauf(symbol, hoechst, gewinn, d):
     aussicht_gut = d is not None and kaufsignal(d[1]) and d[2] >= mindest_chance(symbol)
     return rueckgang >= regel("RUECKGANG", symbol) and not aussicht_gut
 
-HERKUNFT = {}  # Symbol → Strategie, mit der der Bot den Wert gekauft hat (steht in status.json)
+HERKUNFT = {}  # Symbol → {"s": Strategie, "seit": Kaufdatum}, steht in status.json
 
 def herkunft_laden():
     """Welche Strategie welchen Wert gekauft hat. Ältere Käufe ohne Eintrag zählen als Trend (Day-Trade)."""
     global HERKUNFT
+    HERKUNFT = {}
     try:
         h = json.load(open(STATUSDATEI)).get("herkunft", {})
-        HERKUNFT = {s_: v for s_, v in h.items() if v in STRATEGIE_NAMEN}
     except (OSError, ValueError, AttributeError):
-        HERKUNFT = {}
+        return
+    for s_, v in (h.items() if isinstance(h, dict) else []):
+        v = {"s": v} if isinstance(v, str) else v  # ältere Form: nur der Name
+        if isinstance(v, dict) and v.get("s") in STRATEGIE_NAMEN:
+            HERKUNFT[s_] = {"s": v["s"], "seit": v.get("seit")}
 
 def strategie(symbol):
-    return HERKUNFT.get(symbol, "trend")
+    return HERKUNFT.get(symbol, {}).get("s", "trend")
+
+def ausstieg(symbol):
+    return S.NACH_ID[strategie(symbol)][3]
 
 def topf(symbol):
     """Day-Trade (kurz) oder Long-Term (lang)."""
-    return "lang" if strategie(symbol) == "momentum" else "kurz"
+    return S.NACH_ID[strategie(symbol)][2]
+
+def gruppe_von(symbol):
+    return "krypto" if ist_krypto(symbol) else "aktien"
+
+def strategie_erlaubt(sid, symbol):
+    """Eingeschaltet und für diese Gruppe im Test bestanden (oder in keiner Gruppe bestanden)."""
+    if not STRATEGIEN_AN.get(sid):
+        return False
+    t = {g: TEST.get(g, {}).get(sid, {}).get("bestanden") for g in ("aktien", "krypto")}
+    if not any(t.values()):
+        return True
+    return bool(t[gruppe_von(symbol)])
 
 def stopp_grenze(symbol):
     """Ab diesem Verlust wird verkauft (negativ)."""
@@ -449,38 +412,54 @@ def stopp_grenze(symbol):
         return -VERLUST_STOPP_LANG
     return -(regel("VERLUST_WARNUNG", symbol) + regel("VERLUST_WEITER", symbol))
 
-def kurz_werte(werte):
-    """(RSI über 2 Tage, 5-Tage-Schnitt) für den Rücksetzer, mit dem aktuellen Preis."""
-    return rsi_reihe(werte[-60:], 2)[-1], sum(werte[-5:]) / 5
+def live_kennzahlen(symbol, werte):
+    """Kennzahlen der letzten Tage mit dem aktuellen Preis, dazu die Ränge vom Laden."""
+    k = S.kennzahlen(werte[-S.LIVE_TAGE:])
+    for f, r in STRAT.get(symbol, {}).get("rang", {}).items():
+        k[f] = r[-len(k["w"]):] if len(r) >= len(k["w"]) else np.full(len(k["w"]), np.nan)
+    return k
 
-def kaufgruende(symbol, d, werte):
-    """Alle eingeschalteten Strategien, die diesen Wert jetzt kaufen würden: [(Strategie, Chance)]."""
-    w, s50, s200, rsi = d[1]
-    grenze, extra = mindest_chance(symbol), STRAT.get(symbol, {})
+def kaufgruende(symbol, werte):
+    """Alle erlaubten Strategien, die diesen Wert jetzt kaufen würden: [(Strategie, Chance)]."""
+    if len(werte) < 260:
+        return []
+    k = live_kennzahlen(symbol, werte)
+    grenze, chancen_ = mindest_chance(symbol), STRAT.get(symbol, {})
     gruende = []
-    if STRATEGIE_TREND and kaufsignal(d[1]) and d[2] >= grenze:
-        gruende.append(("trend", d[2]))
-    if STRATEGIE_RUECKSETZER and w > s200:
-        rsi2, _ = kurz_werte(werte)
-        if rsi2 is not None and rsi2 < RSI2_GRENZE and extra.get("ruecksetzer", 0) >= grenze:
-            gruende.append(("ruecksetzer", extra["ruecksetzer"]))
-    if (STRATEGIE_MOMENTUM and w > s200 and (extra.get("rang") or 0) >= 1 - MOMENTUM_TOP
-            and extra.get("momentum", 0) >= grenze):
-        gruende.append(("momentum", extra["momentum"]))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for sid, _, _, _, _, f in S.STRATEGIEN:
+            if strategie_erlaubt(sid, symbol) and chancen_.get(sid, 0) >= grenze and bool(np.asarray(f(k), bool)[-1]):
+                gruende.append((sid, chancen_[sid]))
     return gruende
+
+def gehaltene_tage(symbol):
+    """Wie viele Handelstage der Wert schon im Depot ist (Krypto: Kalendertage), None wenn unbekannt."""
+    seit = HERKUNFT.get(symbol, {}).get("seit")
+    if not seit:
+        return None
+    try:
+        start = datetime.date.fromisoformat(seit)
+    except ValueError:
+        return None
+    heute_ = datetime.datetime.now(ZoneInfo("America/New_York")).date()
+    if ist_krypto(symbol):
+        return (heute_ - start).days
+    return int(np.busday_count(start, heute_))
 
 def verkaufsgrund(symbol, gewinn, hoechst, d, werte):
     """Warum diese Position jetzt verkauft wird, sonst None. Long-Term hält länger als Day-Trade."""
     if symbol in ZIELE and gewinn >= ZIELE[symbol]:
         return f"+{gewinn:.1%} Gewinnziel erreicht"
+    aus, name_ = ausstieg(symbol), STRATEGIE_NAMEN[strategie(symbol)]
     if topf(symbol) == "lang":
         if gewinn <= -VERLUST_STOPP_LANG:
             return f"Verlust-Stopp Long-Term bei {gewinn:+.1%}"
         if d and d[1][0] < d[1][2]:
             return "Long-Term: Kurs unter dem 200-Tage-Schnitt, Trend gebrochen"
-        rang = STRAT.get(symbol, {}).get("rang")
-        if rang is not None and rang < 1 - MOMENTUM_BLEIBT:
-            return f"Long-Term: nicht mehr unter den stärksten {MOMENTUM_BLEIBT:.0%}"
+        if isinstance(aus, tuple) and aus[0] == "rang":
+            r = STRAT.get(symbol, {}).get("rang", {}).get(aus[1])
+            if r is not None and len(r) and np.isfinite(r[-1]) and r[-1] < 1 - MOMENTUM_BLEIBT:
+                return f"Long-Term ({name_}): nicht mehr unter den stärksten {MOMENTUM_BLEIBT:.0%}"
         return None
     if gewinn >= gewinn_ziel(symbol):
         return f"+{gewinn:.1%} Gewinnziel erreicht"
@@ -490,8 +469,11 @@ def verkaufsgrund(symbol, gewinn, hoechst, d, werte):
         return f"Quick-Trade, Gewinn gesichert (Höchststand {hoechst:+.1%})"
     if d and verkaufsignal(d[1]):
         return "Verkaufssignal"
-    if strategie(symbol) == "ruecksetzer" and werte and kurz_werte(werte)[1] < werte[-1]:
-        return f"Rücksetzer erholt (über dem 5-Tage-Schnitt, {gewinn:+.1%})"
+    if isinstance(aus, tuple) and aus[0] == "erholung" and werte and sum(werte[-5:]) / 5 < werte[-1]:
+        return f"{name_}: erholt (über dem 5-Tage-Schnitt, {gewinn:+.1%})"
+    frist, tage = S.haltetage(aus), gehaltene_tage(symbol)
+    if frist and tage is not None and tage >= frist:
+        return f"{name_}: Haltedauer von {frist} Tagen erreicht ({gewinn:+.1%})"
     return None
 
 def main(hist, boerse_offen):
@@ -523,6 +505,7 @@ def main(hist, boerse_offen):
         for o in alpaca("GET", "/orders?status=open") or []:
             offen[o["symbol"].replace("/", "")] = float(o.get("notional") or 0)
         HERKUNFT = {s_: v for s_, v in HERKUNFT.items() if s_ in positionen or s_ in offen}
+    heute_datum = datetime.datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
     daten = {s_: (s_, heute(werte), chance, faelle) for s_, werte, chance, faelle in hist.values()}
     kurse_ = {s_: h[1] for s_, h in hist.items()}
@@ -597,14 +580,14 @@ def main(hist, boerse_offen):
     for s_, d in daten.items():
         if s_ in positionen or s_ in offen or s_ in gesperrt or not kaufbar(s_):
             continue
-        for strat, chance in kaufgruende(s_, d, kurse_[s_]):
-            kandidaten.append((0 if strat == "momentum" else 1, -chance, s_, strat, chance))
+        for strat, chance in kaufgruende(s_, kurse_[s_]):
+            kandidaten.append((0 if S.NACH_ID[strat][2] == "lang" else 1, -chance, s_, strat, chance))
     kandidaten.sort()
     gekauft, gekauft_set = [], set()
     for _, _, s_, strat, chance in kandidaten:
         if s_ in gekauft_set:
             continue
-        t = "lang" if strat == "momentum" else "kurz"
+        t = S.NACH_ID[strat][2]
         gruppe = "lang" if t == "lang" else ("krypto" if ist_krypto(s_) else "aktien")
         betrag = betraege[gruppe]
         if platz[gruppe] <= 0 or cash < betrag or genutzt[t] + betrag > budget[t] + 0.01:
@@ -619,7 +602,7 @@ def main(hist, boerse_offen):
         platz[gruppe] -= 1
         genutzt[t] += betrag
         cash -= betrag
-        HERKUNFT[s_] = strat
+        HERKUNFT[s_] = {"s": strat, "seit": heute_datum}
         gekauft_set.add(s_)
         gekauft.append(name(s_))
         d = daten[s_]
@@ -664,16 +647,27 @@ def krypto_liste(hist, positionen):
                     "im_depot": symbol in positionen}
         if h:
             w, s50, s200, rsi = heute(h[1])
-            gruende = kaufgruende(symbol, (symbol, (w, s50, s200, rsi), h[2], h[3]), h[1])
+            gruende = kaufgruende(symbol, h[1]) if info["handelbar"] else []
             trend = "auf" if w > s200 else ("ab" if w < s50 < s200 else "seitwärts")
             beste = max(gruende, key=lambda g: g[1]) if gruende else ("trend", h[2])
-            extra = STRAT.get(symbol, {})
             eintrag_.update(kurs=w, rsi=round(rsi, 1), trend=trend, chance=round(beste[1], 4),
-                            signal=bool(gruende) or kaufsignal((w, s50, s200, rsi)), strategie=beste[0],
-                            chancen={"trend": round(h[2], 4),
-                                     **{k: round(extra[k], 4) for k in ("ruecksetzer", "momentum") if k in extra}},
+                            signal=bool(gruende), strategie=beste[0],
+                            chancen={g[0]: round(g[1], 4) for g in gruende},
                             woche=round(h[1][-1] / h[1][-8] - 1, 4) if len(h[1]) > 8 else None)
         liste.append(eintrag_)
+    return liste
+
+def strategien_liste():
+    """Alle Strategien mit Schalter und Rückblick-Test für die App."""
+    liste = []
+    for sid, name_, topf_, aus, text, _ in S.STRATEGIEN:
+        e = {"id": sid, "name": name_, "topf": topf_, "text": text, "an": STRATEGIEN_AN[sid],
+             "standard": bool(TEST.get("standard", {}).get(sid, False))}
+        for g in ("aktien", "krypto"):
+            t = TEST.get(g, {}).get(sid)
+            if t:
+                e[g] = {k: t.get(k) for k in ("bestanden", "treffer", "schnitt", "basis", "n", "tage")}
+        liste.append(e)
     return liste
 
 def status_schreiben(hist):
@@ -711,7 +705,7 @@ def status_schreiben(hist):
               "boerse_offen": uhr["is_open"], "naechste_oeffnung": uhr["next_open"],
               "lauf": LAUF, "positionen": positionen, "auftraege": auftraege, "verlauf": verlauf,
               "krypto": krypto_liste(hist, {p["symbol"] for p in roh}),
-              "herkunft": HERKUNFT}
+              "herkunft": HERKUNFT, "strategien": strategien_liste()}
     with open(STATUSDATEI + ".neu", "w") as f:
         json.dump(status, f, ensure_ascii=False)
     os.replace(STATUSDATEI + ".neu", STATUSDATEI)
