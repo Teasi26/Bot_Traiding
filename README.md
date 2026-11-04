@@ -3,6 +3,7 @@
 Demo-Handelsbot für Alpaca Paper Trading (nur Spielgeld): S&P-500-Aktien und Kryptowährungen.
 
 - `handel.py`: prüft alle S&P-500-Aktien (`sp500.txt`) und 100 Kryptos (`krypto.txt`) und kauft/verkauft im Alpaca-Demokonto. Regeln stehen oben in der Datei. Braucht numpy.
+- Strategien: Trend und Rücksetzer (⚡ Day-Trade) sowie Momentum (📅 Long-Term), je mit eigener Gewinnchance und in der App einzeln schaltbar. Das Geld wird auf die zwei Töpfe aufgeteilt (Standard 50/50).
 - `markt.py`: Kursanalyse (Trend, SMA 50/200, RSI) für Bitcoin, Ethereum, SMI, S&P 500.
 
 Starten: `python3 handel.py` (braucht die Umgebungsvariablen `ALPACA_KEY` und `ALPACA_SECRET`, sonst Probelauf).
